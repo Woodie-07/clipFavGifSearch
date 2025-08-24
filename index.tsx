@@ -22,6 +22,7 @@ import { Devs } from "@utils/constants";
 import definePlugin, { OptionType } from "@utils/types";
 import { findByPropsLazy } from "@webpack";
 import { useCallback, useEffect, useRef, useState } from "@webpack/common";
+import { UserStore } from "@webpack/common";
 
 interface SearchBarComponentProps {
     ref?: React.MutableRefObject<any>;
@@ -60,17 +61,20 @@ interface Instance {
 }
 
 // Track indexing state
+let lastUserId: string | null = null;
 let lastIndexedFavorites: string[] = [];
 let indexedModels: Set<number> = new Set();
 let pendingIndexRequest = false;
-let lastRankingWeights = { VideoCLIP_XL_v2: 0.5, X_CLIP: 0.5 };
+let lastRankingWeights = { VideoCLIP_XL_v2: 0.5, X_CLIP: 0.0, FrozenInTime: 0.0 };
 
 
 const containerClasses: { searchBar: string; } = findByPropsLazy("searchBar", "searchBarFullRow");
 
 // Function to send index request
 async function sendIndexRequest(favorites: Gif[]) {
-    if (pendingIndexRequest || settings.store.user_key === "UNSET" || settings.store.user_key.length !== 32) {
+    const s = settings.store.accountKeys ??= {};
+    const id = UserStore.getCurrentUser().id;
+    if (pendingIndexRequest || s[id]?.length !== 32) {
         return;
     }
 
@@ -133,6 +137,9 @@ async function sendIndexRequest(favorites: Gif[]) {
     if (settings.store.X_CLIP_ranking > 0) {
         models.push(1);
     }
+    if (settings.store.FrozenInTime_ranking > 0) {
+        models.push(2);
+    }
 
     // Only send if we have models with weight > 0
     if (models.length === 0) {
@@ -147,7 +154,7 @@ async function sendIndexRequest(favorites: Gif[]) {
 
     try {
         pendingIndexRequest = true;
-        const response = await fetch(`${settings.store.api_url}/${settings.store.user_key}/index`, {
+        const response = await fetch(`${settings.store.api_url}/${s[id]}/index`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -161,9 +168,11 @@ async function sendIndexRequest(favorites: Gif[]) {
 
         // Update tracking state on success
         lastIndexedFavorites = [...names];
+        lastUserId = id;
         models.forEach(model => indexedModels.add(model));
         lastRankingWeights.VideoCLIP_XL_v2 = settings.store.VideoCLIP_XL_v2_ranking;
         lastRankingWeights.X_CLIP = settings.store.X_CLIP_ranking;
+        lastRankingWeights.FrozenInTime = settings.store.FrozenInTime_ranking;
 
         console.log(`Successfully indexed ${names.length} valid favorites`);
     } catch (error) {
@@ -213,6 +222,8 @@ function getValidGifUrls(favorites: Gif[]): string[] {
 
 // Function to check if indexing is needed
 function shouldIndex(favorites: Gif[]): boolean {
+    if (lastUserId !== UserStore.getCurrentUser().id) return true;
+
     const currentValidUrls = getValidGifUrls(favorites);
 
     // Check if valid favorites changed
@@ -249,11 +260,6 @@ export const settings = definePluginSettings({
         description: "CLIP API URL",
         default: "https://gif-search.woodie.dev"
     },
-    user_key: {
-        type: OptionType.STRING,
-        description: "User key (randomly generated per-user index identifier)",
-        default: "UNSET"
-    },
     VideoCLIP_XL_v2_ranking: {
         type: OptionType.SLIDER,
         description: "VideoCLIP XL v2 Ranking Weight",
@@ -265,10 +271,17 @@ export const settings = definePluginSettings({
         type: OptionType.SLIDER,
         description: "X-CLIP Ranking Weight",
         markers: [0, 1],
-        default: 0.5,
+        default: 0.0,
+        stickToMarkers: false
+    },
+    FrozenInTime_ranking: {
+        type: OptionType.SLIDER,
+        description: "Frozen-in-Time Ranking Weight",
+        markers: [0, 1],
+        default: 0.0,
         stickToMarkers: false
     }
-});
+}).withPrivateSettings<{ accountKeys?: Record<string, string>; }>();
 
 
 export default definePlugin({
@@ -277,18 +290,10 @@ export default definePlugin({
     description: "Adds a CLIP search bar to favorite gifs.",
 
     start() {
-        if (settings.store.user_key === "UNSET") {
-            const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-            let key = "";
-            for (let i = 0; i < 32; i++) {
-                key += charset.charAt(Math.floor(Math.random() * charset.length));
-            }
-            settings.store.user_key = key;
-        }
-
         // Initialize tracking weights
         lastRankingWeights.VideoCLIP_XL_v2 = settings.store.VideoCLIP_XL_v2_ranking;
         lastRankingWeights.X_CLIP = settings.store.X_CLIP_ranking;
+        lastRankingWeights.FrozenInTime = settings.store.FrozenInTime_ranking;
     },
 
     patches: [
@@ -329,6 +334,18 @@ export default definePlugin({
         const { favorites: filteredFavorites } = this.instance.props;
 
         const favoritesToReturn = filteredFavorites != null && filteredFavorites?.length !== favorites.length ? filteredFavorites : favorites;
+
+        const s = settings.store.accountKeys ??= {};
+        const id = UserStore.getCurrentUser().id;
+        if (s[id] === undefined) {
+            const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+            let key = "";
+            for (let i = 0; i < 32; i++) {
+                key += charset.charAt(Math.floor(Math.random() * charset.length));
+            }
+            s[id] = key;
+        }
+
 
         // Check if we need to index favorites (only check the original favorites, not filtered ones)
         if (shouldIndex(favorites)) {
@@ -389,7 +406,9 @@ function SearchBar({ instance, SearchBarComponent }: { instance: Instance; Searc
         const performSearch = async () => {
             const { props } = instance;
 
-            if (settings.store.user_key.length !== 32) return;
+            const s = settings.store.accountKeys ??= {};
+            const id = UserStore.getCurrentUser().id;
+            if (s[id]?.length !== 32) return;
 
             // Create new AbortController for this request
             abortControllerRef.current = new AbortController();
@@ -401,7 +420,7 @@ function SearchBar({ instance, SearchBarComponent }: { instance: Instance; Searc
                 ?.firstElementChild?.scrollTo(0, 0);
 
             try {
-                const response = await fetch(`${settings.store.api_url}/${settings.store.user_key}/search?text=${encodeURIComponent(debouncedQuery)}`, {
+                const response = await fetch(`${settings.store.api_url}/${s[id]}/search?text=${encodeURIComponent(debouncedQuery)}`, {
                     signal: abortControllerRef.current.signal
                 });
 
@@ -411,7 +430,8 @@ function SearchBar({ instance, SearchBarComponent }: { instance: Instance; Searc
 
                 let weights: Record<string, number> = {
                     "0": settings.store.VideoCLIP_XL_v2_ranking,
-                    "1": settings.store.X_CLIP_ranking
+                    "1": settings.store.X_CLIP_ranking,
+                    "2": settings.store.FrozenInTime_ranking
                 };
 
                 const data = await response.json();
