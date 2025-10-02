@@ -711,7 +711,7 @@ function SearchBar({ instance, SearchBarComponent }: { instance: Instance; Searc
                 const modelWeights = getModelWeights();
                 const models = Object.entries(modelWeights).filter(([, w]) => w > 0).map(([name]) => name);
                 const modelsStr = models.join(",");
-                const response = await fetch(`${settings.store.api_url}/${s[id]}/search?text=${encodeURIComponent(debouncedQuery)}&models=${encodeURIComponent(modelsStr)}`, {
+                const response = await fetch(`${settings.store.api_url}/${s[id]}/search?text=${encodeURIComponent(debouncedQuery)}&models=${encodeURIComponent(modelsStr)}&k=10000`, {
                     signal: abortControllerRef.current.signal
                 });
 
