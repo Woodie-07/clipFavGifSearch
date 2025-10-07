@@ -9,12 +9,17 @@ You'll notice a new search bar above your favourite GIFs menu, just like you wou
 
 Also in the plugin settings menu are some sliders to weight the rankings from the different models in the search results. By default, these sliders will be set to the recommended settings (VideoCLIP-XL-v2 is by far the best model currently implemented) but feel free to try some of the others. The 'account key' at the bottom is a randomly generated identifier for your GIF index, so be aware that if someone has your key they can make search requests to your index and hence retrieve your GIF URLs.
 
+## Demo Video
+https://github.com/user-attachments/assets/802f24d2-7380-4798-a35a-95414f097821
+
 ## Installation
 See the [Vencord Docs](https://docs.vencord.dev/installing/custom-plugins/)
 
 If you plan to set your own server URL, you'll probably need to add the domain to `CspPolicies` in native.ts. If any Vencord plugin developer knows of a better way, please let me know or submit a PR.
 
-## Video
-https://github.com/user-attachments/assets/802f24d2-7380-4798-a35a-95414f097821
+https://github.com/user-attachments/assets/288d5057-3ff5-4a86-b45e-f012f3b5d464
+
+
+
 
 
